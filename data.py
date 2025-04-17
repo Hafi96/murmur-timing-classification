@@ -49,11 +49,10 @@ class PCGDataset(Dataset):
         spec, ratio = self.preprocessor(recording, freq)
         timing = self.timings[idx]
        
-        # outcome = self.outcomes[idx]
+        
         if self.target == 'Systolic murmur timing':
             return spec, patient_features, timing
-        # elif self.target == 'outcome':
-        #     return spec, patient_features, outcome
+       
         else:
             raise NotImplementedError('Unknown target')
 

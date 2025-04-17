@@ -4,7 +4,6 @@ import torch
 from helper_code import find_patient_files, load_patient_data, get_num_locations, get_locations, get_timing, load_wav_file
 from helper_code import compare_strings, get_age, get_sex, get_height, get_weight, get_pregnancy_status
 
-# Updated mappings to remove "Unknown" and outcome-related labels
 timing_mapping_str2int = {'Holosystolic': 0, 'Early-systolic': 1}
 timing_mapping_int2str = {0: 'Holosystolic', 1: 'Early-systolic'}
 

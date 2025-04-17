@@ -1,12 +1,20 @@
-#!/usr/bin/env python
-
-import os
 import sys
+import os
 import numpy as np
-from helper_code import load_patient_data, get_timing, load_challenge_outputs, compare_strings
-from sklearn.metrics import roc_auc_score, average_precision_score, f1_score, accuracy_score
+import matplotlib.pyplot as plt
+from sklearn.metrics import (
+    roc_auc_score,
+    average_precision_score,
+    f1_score,
+    accuracy_score,
+    confusion_matrix,
+    roc_curve,
+    precision_recall_curve
+)
 
-# ✅ Function to find label and output files
+from helper_code import load_patient_data, get_timing, load_challenge_outputs, compare_strings
+
+#  Function to find label and output files
 def find_challenge_files(label_folder, output_folder):
     label_files, output_files = [], []
     for label_file in sorted(os.listdir(label_folder)):
@@ -21,36 +29,34 @@ def find_challenge_files(label_folder, output_folder):
                 print(f"⚠️ Warning: Missing output file for {label_file}")
     return label_files, output_files
 
-# ✅ Function to load timing labels
+#  Function to load timing labels
 def load_timings(label_files):
     valid_indices, labels = [], []
     for i, file in enumerate(label_files):
         data = load_patient_data(file)
         label = get_timing(data)
-        if label in ["Holosystolic","Early-systolic"]:  
+        if label in ["Holosystolic", "Early-systolic"]:
             labels.append([int(label == "Holosystolic"), int(label == "Early-systolic")])
             valid_indices.append(i)
     return np.array(labels, dtype=int), valid_indices
 
-# ✅ Function to load classifier outputs
+#  Function to load classifier outputs
 def load_classifier_outputs(output_files, valid_indices):
     binary_outputs, scalar_outputs = [], []
     filtered_output_files = [output_files[i] for i in valid_indices]
     for file in filtered_output_files:
         _, patient_classes, _, patient_scalar_outputs = load_challenge_outputs(file)
-        binary_output, scalar_output = [0, 0], [0.0, 0.0]  # Default
-        for j, x in enumerate(["Holosystolic","Early-systolic"]):
+        binary_output, scalar_output = [0, 0], [0.0, 0.0]
+        for j, x in enumerate(["Holosystolic", "Early-systolic"]):
             for k, y in enumerate(patient_classes):
                 if compare_strings(x, y):
                     scalar_output[j] = patient_scalar_outputs[k]
-                    binary_output[j] = int(patient_scalar_outputs[k] >= 0.5)  # Default threshold
+                    binary_output[j] = int(patient_scalar_outputs[k] >= 0.5)
         binary_outputs.append(binary_output)
         scalar_outputs.append(scalar_output)
     return np.array(binary_outputs, dtype=int), np.array(scalar_outputs, dtype=np.float64)
 
-# ✅ Compute the best threshold using F1-score
-
-# ✅ Compute evaluation metrics
+#  Metric calculations
 def compute_auc(labels, outputs):
     try:
         auroc_Holosystolic = roc_auc_score(labels[:, 0], outputs[:, 0])
@@ -72,64 +78,112 @@ def compute_accuracy(labels, outputs):
     return np.mean([accuracy_Holosystolic, accuracy_Earlysystolic]), [accuracy_Holosystolic, accuracy_Earlysystolic]
 
 def compute_weighted_accuracy(labels, outputs):
-    weights = np.array([[5, 1], [5, 1]])
+    weights = np.array([[2, 1], [1, 3]])
     confusion = np.zeros((2, 2))
     for i in range(len(labels)):
         confusion[np.argmax(outputs[i]), np.argmax(labels[i])] += 1
     weighted_acc = np.trace(weights * confusion) / np.sum(weights * confusion)
     return weighted_acc
 
-# ✅ Main evaluation function
+#  Visualizations
+def generate_visualizations_multiclass(true_onehot, predicted_probs, output_dir='plots'):
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Convert from one-hot to class index
+    y_true = np.argmax(true_onehot, axis=1)
+    y_pred = np.argmax(predicted_probs, axis=1)
+
+    # ROC and PR (flattened for overall)
+    labels_flat = true_onehot.ravel()
+    probs_flat = predicted_probs.ravel()
+
+    # ROC Curve
+    fpr, tpr, _ = roc_curve(labels_flat, probs_flat)
+    plt.figure()
+    plt.plot(fpr, tpr, label="Overall ROC")
+    plt.plot([0, 1], [0, 1], 'k--')
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title("Overall ROC Curve")
+    plt.grid()
+    plt.legend()
+    plt.savefig(os.path.join(output_dir, "overall_roc.png"))
+    plt.close()
+
+    # PR Curve
+    precision, recall, _ = precision_recall_curve(labels_flat, probs_flat)
+    plt.figure()
+    plt.plot(recall, precision, label="Overall PR")
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.title("Overall Precision-Recall Curve")
+    plt.grid()
+    plt.legend()
+    plt.savefig(os.path.join(output_dir, "overall_pr.png"))
+    plt.close()
+
+    # Confusion Matrix (2x2, multiclass-style)
+    class_names = ["Holosystolic", "Early-systolic"]
+    cm = confusion_matrix(y_true, y_pred)
+    plt.figure()
+    plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+    plt.title('Confusion Matrix (Multiclass)')
+    plt.colorbar()
+    tick_marks = np.arange(len(class_names))
+    plt.xticks(tick_marks, class_names)
+    plt.yticks(tick_marks, class_names)
+    for i in range(len(class_names)):
+        for j in range(len(class_names)):
+            plt.text(j, i, str(cm[i, j]), ha="center", va="center", color="black")
+    plt.xlabel('Predicted Label')
+    plt.ylabel('True Label')
+    plt.savefig(os.path.join(output_dir, "overall_confusion_matrix_multiclass.png"))
+    plt.close()
+
+#  Main evaluation function
 def evaluate_model(label_folder, output_folder):
     print("🔍 Evaluating model...")
-
-    # Load label & output files
     label_files, output_files = find_challenge_files(label_folder, output_folder)
     timing_labels, valid_indices = load_timings(label_files)
     timing_binary_outputs, timing_scalar_outputs = load_classifier_outputs(output_files, valid_indices)
 
-    # Find best threshold
     threshold = 0.5
-
-    # Apply threshold
     timing_binary_outputs = (timing_scalar_outputs >= threshold).astype(int)
 
-    # Compute evaluation metrics
+    generate_visualizations_multiclass(timing_labels, timing_scalar_outputs)
+
     auroc_Holosystolic, auprc_Holosystolic, auroc_Earlysystolic, auprc_Earlysystolic = compute_auc(timing_labels, timing_scalar_outputs)
     timing_f_measure, timing_f_measure_classes = compute_f_measure(timing_labels, timing_binary_outputs)
     timing_accuracy, timing_accuracy_classes = compute_accuracy(timing_labels, timing_binary_outputs)
     timing_weighted_accuracy = compute_weighted_accuracy(timing_labels, timing_binary_outputs)
 
-    return ["Holosystolic","Early-systolic"], [auroc_Holosystolic, auroc_Earlysystolic], [auprc_Holosystolic, auprc_Earlysystolic], \
-           timing_f_measure, timing_f_measure_classes, timing_accuracy, timing_accuracy_classes, timing_weighted_accuracy
+    return ["Holosystolic", "Early-systolic"], [auroc_Holosystolic, auroc_Earlysystolic], \
+           [auprc_Holosystolic, auprc_Earlysystolic], timing_f_measure, \
+           timing_f_measure_classes, timing_accuracy, timing_accuracy_classes, timing_weighted_accuracy
 
-# ✅ Print & Save scores
+#  Save scores
 def print_and_save_scores(filename, timing_scores):
     classes, auroc, auprc, f_measure, f_measure_classes, accuracy, accuracy_classes, weighted_accuracy = timing_scores
-    total_auroc= np.mean([auroc[0],auroc[1]])
-    total_auprc = np.mean([auprc[0], auprc[1]])
+    total_auroc = np.mean(auroc)
+    total_auprc = np.mean(auprc)
     output_string = f"""
-#timing scores
+# Timing Scores
 AUROC,AUPRC,F-measure,Accuracy,Weighted Accuracy
 {total_auroc:.3f},{total_auprc:.3f},{f_measure:.3f},{accuracy:.3f},{weighted_accuracy:.3f}
 
-#timing  scores (per class)
+# Timing Scores (per class)
 Classes,Holosystolic,Early-systolic
 AUROC,{auroc[0]:.3f},{auroc[1]:.3f}
 AUPRC,{auprc[0]:.3f},{auprc[1]:.3f}
 F-measure,{f_measure_classes[0]:.3f},{f_measure_classes[1]:.3f}
 Accuracy,{accuracy_classes[0]:.3f},{accuracy_classes[1]:.3f}
 """
-
-    # ✅ Print results to console
     print(output_string)
-
-    # ✅ Save to file
     with open(filename, 'w') as f:
         f.write(output_string.strip())
     print(f"✅ Scores saved to {filename}")
 
-# ✅ Run the evaluation script
+#  Entry point
 if __name__ == '__main__':
     if len(sys.argv) < 4:
         print("Usage: python evaluate_model.py <label_folder> <output_folder> <scores.csv>")
@@ -137,5 +191,4 @@ if __name__ == '__main__':
 
     timing_scores = evaluate_model(sys.argv[1], sys.argv[2])
     print_and_save_scores(sys.argv[3], timing_scores)
-
-    print("✅ Model Evaluation Completed. Check scores.csv for detailed results.")
+    print(" Model Evaluation Completed. Check scores.csv and plots/ folder for visualizations.")

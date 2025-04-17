@@ -69,8 +69,7 @@ def train_challenge_model(data_folder, model_folder, verbose):
             print('\n')
         save_challenge_model(model_folder, timing_classifier, file_name='timing_classifier')
         
-    # Stage 2: Train the classifier for Outcome classification
- 
+    
         
     if verbose:
         print('Done.')
@@ -144,7 +143,7 @@ def recording_timing_diagnose(multi_scale_specs, timing_classifier, systolic_mur
 
 @torch.no_grad()
 def run_challenge_model(model, data, recordings, verbose):
-    (device, preprocessor, timing_classifier, systolic_murmur_class) = model  # Removed outcome-related components
+    (device, preprocessor, timing_classifier, systolic_murmur_class) = model  
     interval = 1.0
     recording_timing_counts = np.zeros(len(systolic_murmur_class), dtype=np.int_)
 
